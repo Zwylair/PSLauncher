@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.jetbrainsCompose)
     alias(libs.plugins.compose.compiler)
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.1.0-Beta1"
 }
 
 kotlin {
@@ -22,6 +23,8 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodel)
             implementation(libs.androidx.lifecycle.runtime.compose)
             implementation("com.squareup.okhttp3:okhttp:4.9.3")
+            runtimeOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0-RC")
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)

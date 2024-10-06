@@ -1,7 +1,7 @@
 package org.zwylair.pisskaland_launcher
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.desktop.ui.tooling.preview.Preview
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.rememberScrollState
@@ -13,24 +13,40 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.rememberScrollbarAdapter
+import kotlinx.coroutines.launch
 import java.io.File
+
+class Task(val name: String, val description: String) {
+    var progress by mutableStateOf(0f)
+}
 
 @Composable
 @Preview
 fun app() {
-    MaterialTheme {
-        val scrollState = rememberScrollState()
-        var showSettingsDialog by remember { mutableStateOf(false) }
-        var isDownloading by remember { mutableStateOf(false) }
-        var downloadProgress by remember { mutableStateOf(0f) }
-        var downloadObject by remember { mutableStateOf(Downloader("", File(""))) }
+    val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    val tasks = remember { mutableStateListOf<Task>() } // Use mutableStateListOf for reactive UI updates
 
+    fun addTask(name: String, description: String): Int {
+        val newTask = Task("$name...", description)
+        tasks.add(newTask)
+        return tasks.indexOf(newTask)
+    }
+
+    fun removeTask(taskIndex: Int) { tasks.removeAt(taskIndex) }
+
+    fun updateTaskProgress(taskIndex: Int, newProgress: Float) {
+        tasks[taskIndex].progress = newProgress
+        if (newProgress == 1f) { removeTask(taskIndex) }
+    }
+
+    MaterialTheme {
         Box(Modifier.fillMaxSize()) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .verticalScroll(scrollState) // Make the column scrollable
+                    .verticalScroll(scrollState)
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -41,49 +57,51 @@ fun app() {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(onClick = { /* Run Minecraft */ }) { Text("Run Minecraft") }
+                    Button(onClick = {
+                        coroutineScope.launch {
+                            MinecraftRunner.launch(::addTask, ::updateTaskProgress)
+                        }
+                    }) { Text("Run Minecraft") }
 
                     // Test Feature button
                     Button(onClick = {
-                        if (!isDownloading) {
-                            downloadObject = Downloader(
-                                url = "https://file-examples.com/storage/fe36b23e6a66fc0679c1f86/2017/02/file-sample_1MB.doc",
-                                outputFile = File("example_file.doc")
-                            )
+                        val outputFile = File("example_file.doc")
+                        val downloadTask = addTask("Downloading", outputFile.name)
 
-                            downloadObject.startDownload(
-                                onProgress = { progress -> downloadProgress = progress },
-                                onComplete = { isDownloading = false },
-                                onError = { isDownloading = false }
-                            )
-                            isDownloading = true
-                        }
+                        Downloader(
+                            url = "https://file-examples.com/storage/fe36b23e6a66fc0679c1f86/2017/02/file-sample_1MB.doc",
+                            outputFile = outputFile
+                        ).startDownload(
+                            onProgress = { progress -> updateTaskProgress(downloadTask, progress) },
+                            onComplete = { },
+                            onError = { }
+                        )
                     }) {
-                        if (isDownloading) Text("Downloading") else Text("Start downloading")
+                        Text("Test Feature")
                     }
                 }
 
                 Button(onClick = { showSettingsDialog = true }) { Text("Edit Settings") }
                 if (showSettingsDialog) {
-                    settingsDialog(onDismiss = { showSettingsDialog = false } )
+                    settingsDialog(onDismiss = { showSettingsDialog = false })
                 }
 
-                AnimatedVisibility(visible = isDownloading) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                // Display tasks dynamically
+                tasks.forEach { task ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("${task.name}...")
+                        Row(
+                            Modifier.fillMaxWidth(0.7f),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                Modifier.fillMaxWidth(0.7f),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Downloading: ${downloadObject.outputFile.name}")
-                                Spacer(modifier = Modifier.width(20.dp))
-                                LinearProgressIndicator(progress = downloadProgress, modifier = Modifier.fillMaxWidth())
-                            }
+                            Text(task.description)
+                            Spacer(modifier = Modifier.width(20.dp))
+                            LinearProgressIndicator(progress = task.progress, modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }

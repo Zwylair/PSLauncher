@@ -8,7 +8,6 @@ import okhttp3.*
 class Downloader(val url: String, val outputFile: File) {
     private val client = OkHttpClient()
 
-    // Function to start downloading a file
     fun startDownload(
         onProgress: (Float) -> Unit,
         onComplete: () -> Unit,
@@ -39,12 +38,12 @@ class Downloader(val url: String, val outputFile: File) {
                         bytesRead += read
                         if (fileLength > 0) {
                             val progress = (bytesRead.toFloat() / fileLength.toFloat()) * 100
-                            onProgress(progress / 100f) // Update progress
+                            onProgress(progress / 100f)
                         }
                     }
 
                     outputStream.flush()
-                    onComplete() // Download complete
+                    onComplete()
                 } catch (e: Exception) {
                     onError(e)
                 } finally {
