@@ -147,6 +147,11 @@ object MinecraftRunner {
 
                 if (exitCode == 0) { println("MSI installer ran successfully") }
                 else { println("MSI installer failed with exit code: $exitCode") }
+
+                // clear downloaded trash
+                File(Config.JRE_INSTALLER_OUTPUT_FILENAME).delete()
+                runtimeInstallerSHA256File.delete()
+
                 taskProgressUpdater(msiInstallerTask, 1f)
             }
         }
