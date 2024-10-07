@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import java.io.File
 
-class Task(val name: String, val description: String) {
+class Task(val name: String, var description: String) {
     var progress by mutableStateOf(0f)
 }
 
@@ -36,19 +36,24 @@ fun app() {
 
     fun removeTask(taskIndex: Int) { tasks.removeAt(taskIndex) }
 
-    fun updateTaskProgress(taskIndex: Int, newProgress: Float) {
+    fun updateTaskProgress(taskIndex: Int, newProgress: Float, newTaskDescription: String? = null) {
         try {
+            tasks[taskIndex].progress = newProgress
+
+            if (newTaskDescription != null) {
+                tasks[taskIndex].description = newTaskDescription
+            }
+
             if (newProgress == 1f) {
                 removeTask(taskIndex)
                 return
             }
-
-            tasks[taskIndex].progress = newProgress
         } catch (e: IndexOutOfBoundsException) {
             var readableTaskList = ""
             tasks.toList().forEach {
                 readableTaskList += "name: ${it.name}, desc: ${it.description}"
             }
+
             println("updateTaskProgress: tasks: [$readableTaskList], task index causing exception: $taskIndex")
         }
     }

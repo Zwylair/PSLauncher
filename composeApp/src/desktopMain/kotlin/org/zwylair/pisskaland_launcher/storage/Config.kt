@@ -10,4 +10,5 @@ object Config {
     const val JRE_SHA256_DOWNLOAD_LINK = "$JRE_INSTALLER_DOWNLOAD_LINK.sha256.txt"
     val JRE_INSTALLER_KEYS = listOf("/quiet", "/norestart", "INSTALLDIR=\"$JRE_RUNTIME_PATH\"")
     const val USED_MINECRAFT_VERSION_CONFIG = "files/1.20.1-0.16.5.json"
+    const val MINECRAFT_BUILD_CONFIG = "files/build.json"
 }

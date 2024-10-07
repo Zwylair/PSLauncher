@@ -5,12 +5,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.zwylair.pisskaland_launcher.storage.BuildManifest
 import org.zwylair.pisskaland_launcher.storage.Config
 import org.zwylair.pisskaland_launcher.storage.VersionManifest
 import pisskalandlauncher.composeapp.generated.resources.Res
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import kotlin.io.path.Path
+import kotlin.io.path.absolute
+import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.name
 
 fun getFilename(path: String): String { return File(path).name }
 
@@ -28,6 +33,12 @@ fun calculateSha256(input: ByteArray): String {
     return hashBytes.joinToString("") { "%02x".format(it) }
 }
 
+fun calculateSha512(input: ByteArray): String {
+    val digest = MessageDigest.getInstance("SHA-512")
+    val hashBytes = digest.digest(input)
+    return hashBytes.joinToString("") { "%02x".format(it) }
+}
+
 fun checkSha1(filePath: String, shaCompareTo: String?): Boolean {
     if (!fileExists(filePath)) { return false }
     return if (shaCompareTo != null) calculateSha1(File(filePath).readBytes()) == shaCompareTo else true
@@ -36,6 +47,11 @@ fun checkSha1(filePath: String, shaCompareTo: String?): Boolean {
 fun checkSha256(filePath: String, shaCompareTo: String?): Boolean {
     if (!fileExists(filePath)) { return false }
     return if (shaCompareTo != null) calculateSha256(File(filePath).readBytes()) == shaCompareTo else true
+}
+
+fun checkSha512(filePath: String, shaCompareTo: String?): Boolean {
+    if (!fileExists(filePath)) { return false }
+    return if (shaCompareTo != null) calculateSha512(File(filePath).readBytes()) == shaCompareTo else true
 }
 
 private fun runMsiInstaller(): Int {
@@ -73,32 +89,32 @@ private fun runMsiInstaller(): Int {
 object MinecraftRunner {
     private val preLaunchHandlers = mutableListOf<(
         taskCreator: (String, String) -> Int,
-        taskProgressUpdater: (Int, Float) -> Unit
+        taskProgressUpdater: (Int, Float, String?) -> Unit
     ) -> Unit>()
 
     private val postLaunchHandlers = mutableListOf<(
         taskCreator: (String, String) -> Int,
-        taskProgressUpdater: (Int, Float) -> Unit
+        taskProgressUpdater: (Int, Float, String?) -> Unit
     ) -> Unit>()
 
     fun addPreLaunchHandler(
         handler: (
             taskCreator: (String, String) -> Int,
-            taskProgressUpdater: (Int, Float) -> Unit
+            taskProgressUpdater: (Int, Float, String?) -> Unit
         ) -> Unit
     ) { preLaunchHandlers.add(handler) }
 
     fun addPostLaunchHandler(
         handler: (
             taskCreator: (String, String) -> Int,
-            taskProgressUpdater: (Int, Float) -> Unit
+            taskProgressUpdater: (Int, Float, String?) -> Unit
         ) -> Unit
     ) { postLaunchHandlers.add(handler) }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun checkDependencies(
         taskCreator: (String, String) -> Int,
-        taskProgressUpdater: (Int, Float) -> Unit
+        taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
         if (!fileExists(Config.JRE_JAVAW_PATH)) {
             println("JRE runtime was not found. Downloading")
@@ -124,14 +140,14 @@ object MinecraftRunner {
                         url = Config.JRE_INSTALLER_DOWNLOAD_LINK,
                         outputFile = File(Config.JRE_INSTALLER_OUTPUT_FILENAME)
                     ).startDownload(
-                        onProgress = { progress -> taskProgressUpdater(downloadRuntimeTask, progress) },
+                        onProgress = { progress -> taskProgressUpdater(downloadRuntimeTask, progress, null) },
                         onComplete = {
-                            taskProgressUpdater(downloadRuntimeTask, 1f)
+                            taskProgressUpdater(downloadRuntimeTask, 1f, null)
                             continuation.resume(Unit) { } // Resume coroutine once the download completes
                         },
                         onError = { e ->
                             println(e)
-                            taskProgressUpdater(downloadRuntimeTask, 1f)
+                            taskProgressUpdater(downloadRuntimeTask, 1f, null)
                             continuation.resume(Unit) { } // Resume coroutine even on error to avoid hanging
                         }
                     )
@@ -141,7 +157,7 @@ object MinecraftRunner {
             while (!fileExists(Config.JRE_JAVAW_PATH)) {
                 println("Running msiexec (runtime installer) with keys: ${Config.JRE_INSTALLER_KEYS}")
                 val msiInstallerTask = taskCreator("Installing runtime", "msiexec.exe")
-                taskProgressUpdater(msiInstallerTask, 0.1f)
+                taskProgressUpdater(msiInstallerTask, 0.1f, null)
                 delay(100)
                 val exitCode = runMsiInstaller()
 
@@ -152,7 +168,7 @@ object MinecraftRunner {
                 File(Config.JRE_INSTALLER_OUTPUT_FILENAME).delete()
                 runtimeInstallerSHA256File.delete()
 
-                taskProgressUpdater(msiInstallerTask, 1f)
+                taskProgressUpdater(msiInstallerTask, 1f, null)
             }
         }
     }
@@ -160,7 +176,7 @@ object MinecraftRunner {
     @OptIn(ExperimentalResourceApi::class, ExperimentalCoroutinesApi::class)
     private suspend fun checkLibraries(
         taskCreator: (String, String) -> Int,
-        taskProgressUpdater: (Int, Float) -> Unit
+        taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
         val jsonData = Res.readBytes(Config.USED_MINECRAFT_VERSION_CONFIG).toString(Charsets.UTF_8)
         val versionManifest = Json.decodeFromString<VersionManifest>(jsonData)
@@ -177,40 +193,33 @@ object MinecraftRunner {
                     url = versionManifest.downloads.client.url,
                     outputFile = File(clientJarPath)
                 ).startDownload(
-                    onProgress = { progress -> taskProgressUpdater(downloadClientTask, progress) },
+                    onProgress = { progress -> taskProgressUpdater(downloadClientTask, progress, null) },
                     onComplete = {
-                        taskProgressUpdater(downloadClientTask, 1f)
+                        taskProgressUpdater(downloadClientTask, 1f, null)
                         continuation.resume(Unit) { } // Resume coroutine once the download completes
                     },
                     onError = { e ->
                         println(e)
-                        taskProgressUpdater(downloadClientTask, 1f)
+                        taskProgressUpdater(downloadClientTask, 1f, null)
                         continuation.resume(Unit) { } // Resume coroutine even on error to avoid hanging
                     }
                 )
             }
         }
 
-        val classpath = mutableListOf<String>()
         for (library in versionManifest.libraries) {
             val artifact = library.downloads.artifact
             val outputFile = File("lib/${artifact.path}")
-
-            if (library.include_in_classpath) { classpath.add(outputFile.absolutePath) }
             if (fileExists(outputFile.path) && checkSha1(outputFile.path, artifact.sha1)) { continue }
-
             val downloadTask = taskCreator("Download lib", getFilename(artifact.path))
 
             suspendCancellableCoroutine<Unit> { continuation ->
                 Downloader(url = artifact.url, outputFile = outputFile)
                     .startDownload(
-                        onProgress = { progress -> taskProgressUpdater(downloadTask, progress) },
-                        onComplete = {
-                            taskProgressUpdater(downloadTask, 1f)
-                            continuation.resume(Unit) { } // Resume coroutine once the download completes
-                        },
+                        onProgress = { progress -> taskProgressUpdater(downloadTask, progress, null) },
+                        onComplete = { continuation.resume(Unit) { } },
                         onError = { e ->
-                            taskProgressUpdater(downloadTask, 1f)
+                            taskProgressUpdater(downloadTask, 1f, null)
                             continuation.resume(Unit) { } // Resume coroutine even on error to avoid hanging
                         }
                     )
@@ -219,27 +228,50 @@ object MinecraftRunner {
         }
     }
 
+    @OptIn(ExperimentalResourceApi::class, ExperimentalCoroutinesApi::class)
     private suspend fun checkModBuild(
         taskCreator: (String, String) -> Int,
-        taskProgressUpdater: (Int, Float) -> Unit
+        taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
+        val jsonData = Res.readBytes(Config.MINECRAFT_BUILD_CONFIG).toString(Charsets.UTF_8)
+        val buildManifest = Json.decodeFromString<BuildManifest>(jsonData)
+
+        for (mod in buildManifest.files) {
+            val outputFile = File(mod.path)
+            if (fileExists(outputFile.path) && checkSha512(outputFile.path, mod.hashes.sha512)) { continue }
+            val downloadTask = taskCreator("Download mod", getFilename(mod.path))
+
+            suspendCancellableCoroutine<Unit> { continuation ->
+                Downloader(url = mod.downloads[0], outputFile = outputFile)
+                    .startDownload(
+                        onProgress = { progress -> taskProgressUpdater(downloadTask, progress, null) },
+                        onComplete = { continuation.resume(Unit) { } },
+                        onError = { e ->
+                            taskProgressUpdater(downloadTask, 1f, null)
+                            continuation.resume(Unit) { }
+                        }
+                    )
+
+            }
+        }
     }
 
+    @OptIn(ExperimentalResourceApi::class, ExperimentalCoroutinesApi::class)
     private suspend fun cleanMinecraftFolder(
         taskCreator: (String, String) -> Int,
-        taskProgressUpdater: (Int, Float) -> Unit
+        taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
     }
 
     suspend fun launchGame(
         taskCreator: (String, String) -> Int,
-        taskProgressUpdater: (Int, Float) -> Unit
+        taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
-        val preLaunchTasks = listOf(
-            ::checkDependencies,
-            ::cleanMinecraftFolder,
-            ::checkLibraries,
-            ::checkModBuild,
+        val preLaunchTasks = mapOf(
+            ::checkDependencies to "Checking dependencies",
+            ::checkLibraries to "Checking libraries",
+            ::checkModBuild to "Checking mod build",
+            ::cleanMinecraftFolder to "Cleaning minecraft"
         )
         val oneProgressTaskWeight = 1f / (preLaunchTasks.size + preLaunchHandlers.size + postLaunchHandlers.size)
         var tasksDone = 0
@@ -247,17 +279,20 @@ object MinecraftRunner {
 
         // Execute each task sequentially
         // Sequentially execute each pre-launch task
-        for (task in preLaunchTasks) {
+        for ((task, taskDesc) in preLaunchTasks) {
+            taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, taskDesc)
             task(taskCreator, taskProgressUpdater) // Execute task sequentially
             tasksDone++
-            taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone)
+            taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
         // Execute pre-launch handlers sequentially
+        taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "executing preLaunchHooks")
+
         for (handler in preLaunchHandlers) {
             handler(taskCreator, taskProgressUpdater) // Execute handler sequentially
             tasksDone++
-            taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone)
+            taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
 //        val classpath = mutableListOf<String>()
@@ -267,11 +302,13 @@ object MinecraftRunner {
 //            }
 //        }
 
-            // Execute post-launch handlers sequentially
+        // Execute post-launch handlers sequentially
+        taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "executing postLaunchHooks")
+
         for (handler in postLaunchHandlers) {
             handler(taskCreator, taskProgressUpdater) // Execute post-launch handler sequentially
             tasksDone++
-            taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone)
+            taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
         println("launchGame task finished")
