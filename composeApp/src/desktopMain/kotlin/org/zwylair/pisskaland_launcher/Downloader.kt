@@ -4,6 +4,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import okhttp3.*
+import sun.java2d.pipe.NullPipe
 
 class Downloader(val url: String, val outputFile: File) {
     private val client = OkHttpClient()
@@ -24,6 +25,8 @@ class Downloader(val url: String, val outputFile: File) {
                     return
                 }
 
+                println("Downloading: ${outputFile.name} with url: $url")
+                if (outputFile.parent != null) { File(outputFile.parent).mkdirs() }
                 val fileLength = response.body?.contentLength() ?: -1
                 val inputStream = response.body?.byteStream()
                 val outputStream = FileOutputStream(outputFile)

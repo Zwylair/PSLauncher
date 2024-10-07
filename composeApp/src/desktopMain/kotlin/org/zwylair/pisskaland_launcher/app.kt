@@ -37,8 +37,20 @@ fun app() {
     fun removeTask(taskIndex: Int) { tasks.removeAt(taskIndex) }
 
     fun updateTaskProgress(taskIndex: Int, newProgress: Float) {
-        tasks[taskIndex].progress = newProgress
-        if (newProgress == 1f) { removeTask(taskIndex) }
+        try {
+            if (newProgress == 1f) {
+                removeTask(taskIndex)
+                return
+            }
+
+            tasks[taskIndex].progress = newProgress
+        } catch (e: IndexOutOfBoundsException) {
+            var readableTaskList = ""
+            tasks.toList().forEach {
+                readableTaskList += "name: ${it.name}, desc: ${it.description}"
+            }
+            println("updateTaskProgress: tasks: [$readableTaskList], task index causing exception: $taskIndex")
+        }
     }
 
     MaterialTheme {
@@ -59,7 +71,7 @@ fun app() {
                 ) {
                     Button(onClick = {
                         coroutineScope.launch {
-                            MinecraftRunner.launch(::addTask, ::updateTaskProgress)
+                            MinecraftRunner.launchGame(::addTask, ::updateTaskProgress)
                         }
                     }) { Text("Run Minecraft") }
 
