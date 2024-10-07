@@ -48,13 +48,8 @@ fun app() {
                 removeTask(taskIndex)
                 return
             }
-        } catch (e: IndexOutOfBoundsException) {
-            var readableTaskList = ""
-            tasks.toList().forEach {
-                readableTaskList += "name: ${it.name}, desc: ${it.description}"
-            }
-
-            println("updateTaskProgress: tasks: [$readableTaskList], task index causing exception: $taskIndex")
+        } catch (_: IndexOutOfBoundsException) {
+            println("updateTaskProgress called after destroying task")
         }
     }
 

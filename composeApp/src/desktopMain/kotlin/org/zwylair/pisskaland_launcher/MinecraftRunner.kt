@@ -307,21 +307,22 @@ object MinecraftRunner {
         val oneProgressTaskWeight = 1f / (preLaunchTasks.size + preLaunchHandlers.size + postLaunchHandlers.size)
         var tasksDone = 0
         val mainTask = taskCreator("Launching Minecraft", "Processing")
+        println("launchGame task ran")
 
-        // Execute each task sequentially
-        // Sequentially execute each pre-launch task
         for ((task, taskDesc) in preLaunchTasks) {
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, taskDesc)
-            task(taskCreator, taskProgressUpdater) // Execute task sequentially
+            println(taskDesc)
+            task(taskCreator, taskProgressUpdater)
             tasksDone++
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
         // Execute pre-launch handlers sequentially
         taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "executing preLaunchHooks")
+        println("executing preLaunchHooks")
 
         for (handler in preLaunchHandlers) {
-            handler(taskCreator, taskProgressUpdater) // Execute handler sequentially
+            handler(taskCreator, taskProgressUpdater)
             tasksDone++
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
@@ -333,8 +334,8 @@ object MinecraftRunner {
 //            }
 //        }
 
-        // Execute post-launch handlers sequentially
         taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "executing postLaunchHooks")
+        println("executing postLaunchHooks")
 
         for (handler in postLaunchHandlers) {
             handler(taskCreator, taskProgressUpdater) // Execute post-launch handler sequentially
