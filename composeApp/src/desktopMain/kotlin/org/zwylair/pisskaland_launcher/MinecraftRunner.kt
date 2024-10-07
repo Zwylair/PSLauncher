@@ -56,34 +56,33 @@ fun checkSha512(filePath: String, shaCompareTo: String?): Boolean {
 
 private fun runMsiInstaller(): Int {
     try {
-        // Build the command with msiexec and the MSI file path along with the provided arguments
         val command = mutableListOf("msiexec", "/i", Config.JRE_INSTALLER_OUTPUT_FILENAME).apply {
-            addAll(Config.JRE_INSTALLER_KEYS) // Add additional arguments
+            addAll(Config.JRE_INSTALLER_KEYS)
         }
 
-        // Create the process builder to execute the command
         val processBuilder = ProcessBuilder(command)
         processBuilder.directory(File("."))
         processBuilder.redirectErrorStream(true)
 
-        // Start the process
         val process = processBuilder.start()
+        return process.waitFor()
 
-        // Wait for the process to finish and return the exit code
-        val exitCode = process.waitFor()
-
-        // Return the exit code (0 means success, anything else usually means an error)
-        return exitCode
-
-    } catch (e: IOException) {
-        e.printStackTrace()
-    } catch (e: InterruptedException) {
-        e.printStackTrace()
-        Thread.currentThread().interrupt() // Restore interrupted status
     }
-
-    // Return an error code if the process fails
+    catch (e: IOException) { e.printStackTrace() }
+    catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
     return -1
+}
+
+@OptIn(ExperimentalResourceApi::class)
+private suspend fun getVersionManifest(): VersionManifest {
+    val jsonData = Res.readBytes(Config.USED_MINECRAFT_VERSION_CONFIG).toString(Charsets.UTF_8)
+    return Json.decodeFromString<VersionManifest>(jsonData)
+}
+
+@OptIn(ExperimentalResourceApi::class)
+private suspend fun getBuildManifest(): BuildManifest {
+    val jsonData = Res.readBytes(Config.MINECRAFT_BUILD_CONFIG).toString(Charsets.UTF_8)
+    return Json.decodeFromString<BuildManifest>(jsonData)
 }
 
 object MinecraftRunner {
@@ -173,14 +172,12 @@ object MinecraftRunner {
         }
     }
 
-    @OptIn(ExperimentalResourceApi::class, ExperimentalCoroutinesApi::class)
+    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun checkLibraries(
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
-        val jsonData = Res.readBytes(Config.USED_MINECRAFT_VERSION_CONFIG).toString(Charsets.UTF_8)
-        val versionManifest = Json.decodeFromString<VersionManifest>(jsonData)
-
+        val versionManifest = getVersionManifest()
         val clientJarPath = "versions/${versionManifest.id}/client.jar"
         if (
             fileExists(clientJarPath) && !checkSha1(clientJarPath, versionManifest.downloads.client.sha1) ||
@@ -228,13 +225,12 @@ object MinecraftRunner {
         }
     }
 
-    @OptIn(ExperimentalResourceApi::class, ExperimentalCoroutinesApi::class)
+    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun checkModBuild(
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
-        val jsonData = Res.readBytes(Config.MINECRAFT_BUILD_CONFIG).toString(Charsets.UTF_8)
-        val buildManifest = Json.decodeFromString<BuildManifest>(jsonData)
+        val buildManifest = getBuildManifest()
 
         for (mod in buildManifest.files) {
             val outputFile = File(mod.path)
@@ -251,12 +247,11 @@ object MinecraftRunner {
                             continuation.resume(Unit) { }
                         }
                     )
-
             }
         }
     }
 
-    @OptIn(ExperimentalResourceApi::class, ExperimentalCoroutinesApi::class)
+    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun cleanMinecraftFolder(
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
@@ -264,9 +259,7 @@ object MinecraftRunner {
         val cleanMinecraftFolderTask = taskCreator("Cleaning", "Mod folder")
         println("Searching minecraft folder for trash")
 
-        val jsonData = Res.readBytes(Config.MINECRAFT_BUILD_CONFIG).toString(Charsets.UTF_8)
-        val buildManifest = Json.decodeFromString<BuildManifest>(jsonData)
-
+        val buildManifest = getBuildManifest()
         val verifiedModList = mutableListOf<String>()
         val verifiedResourcePacksList = mutableListOf<String>()
         val modsPathList = Path("mods").listDirectoryEntries()
@@ -327,12 +320,29 @@ object MinecraftRunner {
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
-//        val classpath = mutableListOf<String>()
-//        for (library in versionManifest.libraries) {
-//            if (library.include_in_classpath) {
-//                classpath.add(outputFile.absolutePath)
-//            }
+        // running minecraft
+        val versionManifest = getVersionManifest()
+
+        val classpath = mutableListOf<String>()
+        for (library in versionManifest.libraries) {
+            if (library.include_in_classpath) {
+                classpath.add(File(library.downloads.artifact.path).absolutePath)
+            }
+        }
+
+//        try {
+//            val command = mutableListOf(Config.JRE_JAVAW_PATH, Config.JRE_INSTALLER_OUTPUT_FILENAME)
+//
+//            val processBuilder = ProcessBuilder(command)
+//            processBuilder.directory(File("."))
+//            processBuilder.redirectErrorStream(true)
+//
+//            val process = processBuilder.start()
+//            val result = process.waitFor()
+//            println("minecraft exited with code: $result")
 //        }
+//        catch (e: IOException) { e.printStackTrace() }
+//        catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
 
         taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "executing postLaunchHooks")
         println("executing postLaunchHooks")
