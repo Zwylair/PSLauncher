@@ -261,6 +261,37 @@ object MinecraftRunner {
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
+        val cleanMinecraftFolderTask = taskCreator("Cleaning", "Mod folder")
+        println("Searching minecraft folder for trash")
+
+        val jsonData = Res.readBytes(Config.MINECRAFT_BUILD_CONFIG).toString(Charsets.UTF_8)
+        val buildManifest = Json.decodeFromString<BuildManifest>(jsonData)
+
+        val verifiedModList = mutableListOf<String>()
+        val verifiedResourcePacksList = mutableListOf<String>()
+        val modsPathList = Path("mods").listDirectoryEntries()
+        val resourcePacksPathList = Path("resourcepacks").listDirectoryEntries()
+        val pointsPerItem = 1f / modsPathList.size + resourcePacksPathList.size
+        var itemCounter = 0
+
+        buildManifest.files.forEach {
+            when (File(it.path).parent) {
+                "mods" -> { verifiedModList.add(getFilename(it.path)) }
+                "resourcepacks" -> { verifiedResourcePacksList.add(getFilename(it.path)) }
+            }
+        }
+
+        modsPathList.forEach {
+            if (!verifiedModList.contains(it.name)) { it.toFile().delete() }
+            itemCounter++
+            taskProgressUpdater(cleanMinecraftFolderTask, pointsPerItem * itemCounter, "Cleaning mods folder")
+        }
+
+        resourcePacksPathList.forEach {
+            if (!verifiedResourcePacksList.contains(it.name)) { it.toFile().delete() }
+            itemCounter++
+            taskProgressUpdater(cleanMinecraftFolderTask, pointsPerItem * itemCounter, "Cleaning RP folder")
+        }
     }
 
     suspend fun launchGame(
