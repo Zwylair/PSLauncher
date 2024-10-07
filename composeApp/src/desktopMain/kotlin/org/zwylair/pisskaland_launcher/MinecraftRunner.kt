@@ -100,6 +100,56 @@ object MinecraftRunner {
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float) -> Unit
     ) {
+        if (!fileExists(Config.JRE_JAVAW_PATH)) {
+            println("JRE runtime was not found. Downloading")
+
+            val runtimeInstallerSHA256File = File("${Config.JRE_INSTALLER_OUTPUT_FILENAME}.sha256.txt")
+            suspendCancellableCoroutine<Unit> { continuation ->
+                Downloader(
+                    url = Config.JRE_SHA256_DOWNLOAD_LINK, outputFile = runtimeInstallerSHA256File
+                ).startDownload(
+                    onProgress = { },
+                    onComplete = { continuation.resume(Unit) { } },
+                    onError = { continuation.resume(Unit) { } }
+                )
+            }
+            val runtimeInstallerSHA256 = runtimeInstallerSHA256File.readText().split(" ")[0]
+
+            while (!checkSha256(Config.JRE_INSTALLER_OUTPUT_FILENAME, runtimeInstallerSHA256)) {
+                println("Runtime installer hash mismatched. Downloading once more")
+                val downloadRuntimeTask = taskCreator("Downloading runtime", getFilename(Config.JRE_INSTALLER_DOWNLOAD_LINK))
+
+                suspendCancellableCoroutine<Unit> { continuation ->
+                    Downloader(
+                        url = Config.JRE_INSTALLER_DOWNLOAD_LINK,
+                        outputFile = File(Config.JRE_INSTALLER_OUTPUT_FILENAME)
+                    ).startDownload(
+                        onProgress = { progress -> taskProgressUpdater(downloadRuntimeTask, progress) },
+                        onComplete = {
+                            taskProgressUpdater(downloadRuntimeTask, 1f)
+                            continuation.resume(Unit) { } // Resume coroutine once the download completes
+                        },
+                        onError = { e ->
+                            println(e)
+                            taskProgressUpdater(downloadRuntimeTask, 1f)
+                            continuation.resume(Unit) { } // Resume coroutine even on error to avoid hanging
+                        }
+                    )
+                }
+            }
+
+            while (!fileExists(Config.JRE_JAVAW_PATH)) {
+                println("Running msiexec (runtime installer) with keys: ${Config.JRE_INSTALLER_KEYS}")
+                val msiInstallerTask = taskCreator("Installing runtime", "msiexec.exe")
+                taskProgressUpdater(msiInstallerTask, 0.1f)
+                delay(100)
+                val exitCode = runMsiInstaller()
+
+                if (exitCode == 0) { println("MSI installer ran successfully") }
+                else { println("MSI installer failed with exit code: $exitCode") }
+                taskProgressUpdater(msiInstallerTask, 1f)
+            }
+        }
     }
 
     @OptIn(ExperimentalResourceApi::class, ExperimentalCoroutinesApi::class)
