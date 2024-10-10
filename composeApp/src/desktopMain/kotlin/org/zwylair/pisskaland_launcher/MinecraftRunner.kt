@@ -1,5 +1,6 @@
 package org.zwylair.pisskaland_launcher
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -7,31 +8,51 @@ import kotlinx.serialization.json.Json
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.zwylair.pisskaland_launcher.storage.BuildManifest
 import org.zwylair.pisskaland_launcher.storage.Config
-import org.zwylair.pisskaland_launcher.storage.VersionManifest
 import pisskalandlauncher.composeapp.generated.resources.Res
+import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
+import java.io.InputStreamReader
 import java.security.MessageDigest
 import kotlin.io.path.Path
-import kotlin.io.path.absolute
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
+import kotlinx.coroutines.*
+import java.io.ByteArrayInputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+
+fun readZipFile(zipBytes: ByteArray) {
+    // Create a ByteArrayInputStream from the zip file bytes
+    val inputStream = ByteArrayInputStream(zipBytes)
+    val zipInputStream = ZipInputStream(inputStream)
+
+    var entry: ZipEntry? = zipInputStream.nextEntry
+    while (entry != null) {
+        println("Reading file: ${entry.name}")
+
+        // You can now read the file content as needed from zipInputStream
+        if (!entry.isDirectory) {
+            val fileContent = zipInputStream.readBytes()
+            // Do something with the file content (e.g., process it)
+            println("File content size: ${fileContent.size} bytes")
+        }
+
+        // Move to the next entry in the zip
+        entry = zipInputStream.nextEntry
+    }
+
+    // Close the zip stream
+    zipInputStream.close()
+}
+
+fun openZipFile(file: File): ZipInputStream {
+    return ZipInputStream(ByteArrayInputStream(file.readBytes()))
+}
 
 fun getFilename(path: String): String { return File(path).name }
 
 fun fileExists(path: String): Boolean { return File(path).exists() }
-
-fun calculateSha1(input: ByteArray): String {
-    val digest = MessageDigest.getInstance("SHA-1")
-    val hashBytes = digest.digest(input)
-    return hashBytes.joinToString("") { "%02x".format(it) }
-}
-
-fun calculateSha256(input: ByteArray): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    val hashBytes = digest.digest(input)
-    return hashBytes.joinToString("") { "%02x".format(it) }
-}
 
 fun calculateSha512(input: ByteArray): String {
     val digest = MessageDigest.getInstance("SHA-512")
@@ -39,44 +60,21 @@ fun calculateSha512(input: ByteArray): String {
     return hashBytes.joinToString("") { "%02x".format(it) }
 }
 
-fun checkSha1(filePath: String, shaCompareTo: String?): Boolean {
-    if (!fileExists(filePath)) { return false }
-    return if (shaCompareTo != null) calculateSha1(File(filePath).readBytes()) == shaCompareTo else true
-}
-
-fun checkSha256(filePath: String, shaCompareTo: String?): Boolean {
-    if (!fileExists(filePath)) { return false }
-    return if (shaCompareTo != null) calculateSha256(File(filePath).readBytes()) == shaCompareTo else true
-}
-
 fun checkSha512(filePath: String, shaCompareTo: String?): Boolean {
     if (!fileExists(filePath)) { return false }
     return if (shaCompareTo != null) calculateSha512(File(filePath).readBytes()) == shaCompareTo else true
 }
 
-private fun runMsiInstaller(): Int {
-    try {
-        val command = mutableListOf("msiexec", "/i", Config.JRE_INSTALLER_OUTPUT_FILENAME).apply {
-            addAll(Config.JRE_INSTALLER_KEYS)
-        }
-
-        val processBuilder = ProcessBuilder(command)
-        processBuilder.directory(File("."))
-        processBuilder.redirectErrorStream(true)
-
-        val process = processBuilder.start()
-        return process.waitFor()
-
-    }
-    catch (e: IOException) { e.printStackTrace() }
-    catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
-    return -1
+fun getProcessOutput(process: Process): String {
+    return BufferedReader(InputStreamReader(process.inputStream)).use { it.readText() }
 }
 
-@OptIn(ExperimentalResourceApi::class)
-private suspend fun getVersionManifest(): VersionManifest {
-    val jsonData = Res.readBytes(Config.USED_MINECRAFT_VERSION_CONFIG).toString(Charsets.UTF_8)
-    return Json.decodeFromString<VersionManifest>(jsonData)
+fun String.isDigit(): Boolean { return this.toFloatOrNull() != null }
+fun String.isAlpha(allowSpace: Boolean = false): Boolean  {
+    return !(this.toCharArray().map {
+        if (allowSpace) { it.isLetter() || it == " ".toCharArray()[0] }
+        else { it.isLetter() }
+    }.contains(false))
 }
 
 @OptIn(ExperimentalResourceApi::class)
@@ -111,129 +109,126 @@ object MinecraftRunner {
     ) { postLaunchHandlers.add(handler) }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun checkDependencies(
+    suspend fun checkDependencies(
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
-        if (!fileExists(Config.JRE_JAVAW_PATH)) {
-            println("JRE runtime was not found. Downloading")
+        if (!fileExists(Config.PYTHON_SDK_PATH)) {
+            println("Python SDK was not found. Downloading")
 
-            val runtimeInstallerSHA256File = File("${Config.JRE_INSTALLER_OUTPUT_FILENAME}.sha256.txt")
-            suspendCancellableCoroutine<Unit> { continuation ->
-                Downloader(
-                    url = Config.JRE_SHA256_DOWNLOAD_LINK, outputFile = runtimeInstallerSHA256File
-                ).startDownload(
-                    onProgress = { },
-                    onComplete = { continuation.resume(Unit) { } },
-                    onError = { continuation.resume(Unit) { } }
-                )
-            }
-            val runtimeInstallerSHA256 = runtimeInstallerSHA256File.readText().split(" ")[0]
-
-            while (!checkSha256(Config.JRE_INSTALLER_OUTPUT_FILENAME, runtimeInstallerSHA256)) {
-                println("Runtime installer hash mismatched. Downloading once more")
-                val downloadRuntimeTask = taskCreator("Downloading runtime", getFilename(Config.JRE_INSTALLER_DOWNLOAD_LINK))
+            if (!fileExists(Config.PYTHON_INSTALLER_PATH)) {
+                val downloadTask = taskCreator("Downloading", "Python SDK")
+                val outputFile = File(Config.PYTHON_INSTALLER_PATH)
 
                 suspendCancellableCoroutine<Unit> { continuation ->
-                    Downloader(
-                        url = Config.JRE_INSTALLER_DOWNLOAD_LINK,
-                        outputFile = File(Config.JRE_INSTALLER_OUTPUT_FILENAME)
-                    ).startDownload(
-                        onProgress = { progress -> taskProgressUpdater(downloadRuntimeTask, progress, null) },
-                        onComplete = {
-                            taskProgressUpdater(downloadRuntimeTask, 1f, null)
-                            continuation.resume(Unit) { } // Resume coroutine once the download completes
-                        },
-                        onError = { e ->
-                            println(e)
-                            taskProgressUpdater(downloadRuntimeTask, 1f, null)
-                            continuation.resume(Unit) { } // Resume coroutine even on error to avoid hanging
-                        }
-                    )
+                    Downloader(url = Config.PYTHON_INSTALLER_URL, outputFile = outputFile)
+                        .startDownload(
+                            onProgress = { progress -> taskProgressUpdater(downloadTask, progress, null) },
+                            onComplete = { continuation.resume(Unit) { } },
+                            onError = { e ->
+                                taskProgressUpdater(downloadTask, 1f, null)
+                                continuation.resume(Unit) { }
+                            }
+                        )
                 }
             }
 
-            while (!fileExists(Config.JRE_JAVAW_PATH)) {
-                println("Running msiexec (runtime installer) with keys: ${Config.JRE_INSTALLER_KEYS}")
-                val msiInstallerTask = taskCreator("Installing runtime", "msiexec.exe")
-                taskProgressUpdater(msiInstallerTask, 0.1f, null)
-                delay(100)
-                val exitCode = runMsiInstaller()
+            val command = mutableListOf(Config.PYTHON_INSTALLER_PATH)
+            command.addAll(listOf("-o\"${File("").absolutePath}\"", "-y"))
 
-                if (exitCode == 0) { println("MSI installer ran successfully") }
-                else { println("MSI installer failed with exit code: $exitCode") }
+            try {
+                val processBuilder = ProcessBuilder(command)
+                processBuilder.directory(File("."))
+                processBuilder.redirectErrorStream(true)
 
-                // clear downloaded trash
-                File(Config.JRE_INSTALLER_OUTPUT_FILENAME).delete()
-                runtimeInstallerSHA256File.delete()
-
-                taskProgressUpdater(msiInstallerTask, 1f, null)
+                val process = processBuilder.start()
+                val result = process.waitFor()
+                println("python sdk installer exited with code: $result")
             }
+            catch (e: IOException) { e.printStackTrace() }
+            catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
         }
-    }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun checkLibraries(
-        taskCreator: (String, String) -> Int,
-        taskProgressUpdater: (Int, Float, String?) -> Unit
-    ) {
-        val versionManifest = getVersionManifest()
-        val clientJarPath = "versions/${versionManifest.id}/client.jar"
+        if (!fileExists("${Config.PYTHON_SDK_PATH}/Lib/site-packages/minecraft_launcher_lib")) {
+            println("minecraft-launcher-lib not found. Installing")
+            val installLibsTask = taskCreator("Installing libs", "Processing")
+            val command = mutableListOf(
+                "${Config.PYTHON_SDK_PATH}/python.exe",
+                "-m", "pip", "install", "minecraft-launcher-lib"
+            )
+
+            try {
+                val processBuilder = ProcessBuilder(command)
+                processBuilder.directory(File("."))
+                processBuilder.redirectErrorStream(true)
+
+                val process = processBuilder.start()
+                val resultString = BufferedReader(InputStreamReader(process.inputStream)).use { it.readText() }
+                println(resultString)
+                taskProgressUpdater(installLibsTask, 1f, null)
+            }
+            catch (e: IOException) { e.printStackTrace() }
+            catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
+        }
+
         if (
-            fileExists(clientJarPath) && !checkSha1(clientJarPath, versionManifest.downloads.client.sha1) ||
-            !fileExists(clientJarPath)
+            !fileExists("${Config.MINECRAFT_PARENT_PATH}/runtime/java-runtime-gamma/windows-x64/java-runtime-gamma/bin/java.exe") ||
+            !fileExists("${Config.MINECRAFT_PARENT_PATH}/libraries") ||
+            !fileExists("${Config.MINECRAFT_PARENT_PATH}/assets") ||
+            !fileExists("${Config.MINECRAFT_PARENT_PATH}/versions")
         ) {
-            val downloadClientTask = taskCreator("Downloading client", clientJarPath)
+            println("One or some of minecraft requirements was not found. Repairing")
 
-            suspendCancellableCoroutine<Unit> { continuation ->
-                Downloader(
-                    url = versionManifest.downloads.client.url,
-                    outputFile = File(clientJarPath)
-                ).startDownload(
-                    onProgress = { progress -> taskProgressUpdater(downloadClientTask, progress, null) },
-                    onComplete = {
-                        taskProgressUpdater(downloadClientTask, 1f, null)
-                        continuation.resume(Unit) { } // Resume coroutine once the download completes
-                    },
-                    onError = { e ->
-                        println(e)
-                        taskProgressUpdater(downloadClientTask, 1f, null)
-                        continuation.resume(Unit) { } // Resume coroutine even on error to avoid hanging
-                    }
-                )
-            }
-        }
+            val command = mutableListOf(
+                "${Config.PYTHON_SDK_PATH}/python.exe",
+                "scripts/setup_dependencies.py"
+            )
 
-        for (library in versionManifest.libraries) {
-            val artifact = library.downloads.artifact
-            val outputFile = File("lib/${artifact.path}")
-            if (fileExists(outputFile.path) && checkSha1(outputFile.path, artifact.sha1)) { continue }
-            val downloadTask = taskCreator("Download lib", getFilename(artifact.path))
+            try {
+                val processBuilder = ProcessBuilder(command)
+                processBuilder.directory(File("."))
+                processBuilder.redirectErrorStream(true)
 
-            suspendCancellableCoroutine<Unit> { continuation ->
-                Downloader(url = artifact.url, outputFile = outputFile)
-                    .startDownload(
-                        onProgress = { progress -> taskProgressUpdater(downloadTask, progress, null) },
-                        onComplete = { continuation.resume(Unit) { } },
-                        onError = { e ->
-                            taskProgressUpdater(downloadTask, 1f, null)
-                            continuation.resume(Unit) { } // Resume coroutine even on error to avoid hanging
+                val process = processBuilder.start()
+
+                val outputJob = CoroutineScope(Dispatchers.IO).launch {
+                    val reader = BufferedReader(InputStreamReader(process.inputStream))
+                    var line: String?
+
+                    var task = taskCreator("Downloading Minecraft", "Processing")
+
+                    while (process.isAlive) {
+                        line = reader.readLine()
+
+                        if (line == null) { taskProgressUpdater(task, 1f, line); break }
+                        if (line.replace("/", "").isDigit()) {
+                            val (currentProgress, totalProgress) = line.split("/").map { it.toFloat() }
+                            val progressInPercent = currentProgress / totalProgress
+
+                            taskProgressUpdater(task, progressInPercent, null)
+                            if (progressInPercent == 1f) { task = taskCreator("Downloading Minecraft", "Processing") }
                         }
-                    )
+                        else if (line.isAlpha(allowSpace = true)) { taskProgressUpdater(task, 0f, line) }
+                    }
+                }
 
+                outputJob.join()
+                while (outputJob.isActive) { delay(0) }
             }
+            catch (e: IOException) { e.printStackTrace() }
+            catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
         }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun checkModBuild(
+    suspend fun checkModBuild(
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
         val buildManifest = getBuildManifest()
 
         for (mod in buildManifest.files) {
-            val outputFile = File(mod.path)
+            val outputFile = File("${Config.MINECRAFT_PARENT_PATH}/${mod.path}")
             if (fileExists(outputFile.path) && checkSha512(outputFile.path, mod.hashes.sha512)) { continue }
             val downloadTask = taskCreator("Download mod", getFilename(mod.path))
 
@@ -252,7 +247,7 @@ object MinecraftRunner {
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun cleanMinecraftFolder(
+    suspend fun cleanMinecraftFolder(
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
@@ -262,8 +257,8 @@ object MinecraftRunner {
         val buildManifest = getBuildManifest()
         val verifiedModList = mutableListOf<String>()
         val verifiedResourcePacksList = mutableListOf<String>()
-        val modsPathList = Path("mods").listDirectoryEntries()
-        val resourcePacksPathList = Path("resourcepacks").listDirectoryEntries()
+        val modsPathList = Path("${Config.MINECRAFT_PARENT_PATH}/mods").listDirectoryEntries()
+        val resourcePacksPathList = Path("${Config.MINECRAFT_PARENT_PATH}/resourcepacks").listDirectoryEntries()
         val pointsPerItem = 1f / modsPathList.size + resourcePacksPathList.size
         var itemCounter = 0
 
@@ -293,7 +288,6 @@ object MinecraftRunner {
     ) {
         val preLaunchTasks = mapOf(
             ::checkDependencies to "Checking dependencies",
-            ::checkLibraries to "Checking libraries",
             ::checkModBuild to "Checking mod build",
             ::cleanMinecraftFolder to "Cleaning minecraft"
         )
@@ -310,7 +304,6 @@ object MinecraftRunner {
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
-        // Execute pre-launch handlers sequentially
         taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "executing preLaunchHooks")
         println("executing preLaunchHooks")
 
@@ -320,29 +313,32 @@ object MinecraftRunner {
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
-        // running minecraft
-        val versionManifest = getVersionManifest()
+        val command = mutableListOf(
+            "${Config.PYTHON_SDK_PATH}/python.exe",
+            "scripts/run_minecraft.py"
+        )
 
-        val classpath = mutableListOf<String>()
-        for (library in versionManifest.libraries) {
-            if (library.include_in_classpath) {
-                classpath.add(File(library.downloads.artifact.path).absolutePath)
+        try {
+            val processBuilder = ProcessBuilder(command)
+            processBuilder.directory(File("."))
+            processBuilder.redirectErrorStream(true)
+
+            val process = processBuilder.start()
+            val outputJob = CoroutineScope(Dispatchers.IO).launch {
+                val reader = BufferedReader(InputStreamReader(process.inputStream))
+                var line: String?
+
+                while (process.isAlive) {
+                    line = reader.readLine()
+                    println(line)
+                }
             }
-        }
 
-//        try {
-//            val command = mutableListOf(Config.JRE_JAVAW_PATH, Config.JRE_INSTALLER_OUTPUT_FILENAME)
-//
-//            val processBuilder = ProcessBuilder(command)
-//            processBuilder.directory(File("."))
-//            processBuilder.redirectErrorStream(true)
-//
-//            val process = processBuilder.start()
-//            val result = process.waitFor()
-//            println("minecraft exited with code: $result")
-//        }
-//        catch (e: IOException) { e.printStackTrace() }
-//        catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
+            outputJob.join()
+            while (outputJob.isActive) { delay(0) }
+        }
+        catch (e: IOException) { e.printStackTrace() }
+        catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
 
         taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "executing postLaunchHooks")
         println("executing postLaunchHooks")

@@ -14,9 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import java.io.File
 
-class Task(val name: String, var description: String) {
+class Task(val name: String, var description: String, val type: String = "progressbar") {
     var progress by mutableStateOf(0f)
 }
 
@@ -69,51 +68,61 @@ fun app() {
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Test Feature button
+//                    Button(onClick = {
+//                        val outputFile = File("example_file.doc")
+//                        val downloadTask = addTask("Downloading", outputFile.name)
+//
+//                        Downloader(
+//                            url = "https://file-examples.com/storage/fe36b23e6a66fc0679c1f86/2017/02/file-sample_1MB.doc",
+//                            outputFile = outputFile
+//                        ).startDownload(
+//                            onProgress = { progress -> updateTaskProgress(downloadTask, progress) },
+//                            onComplete = { },
+//                            onError = { }
+//                        )
+//                    }) {
+//                        Text("Test Feature")
+//                    }
                     Button(onClick = {
                         coroutineScope.launch {
                             MinecraftRunner.launchGame(::addTask, ::updateTaskProgress)
                         }
                     }) { Text("Run Minecraft") }
 
-                    // Test Feature button
+                    Spacer(modifier = Modifier.width(5.dp))
+
                     Button(onClick = {
-                        val outputFile = File("example_file.doc")
-                        val downloadTask = addTask("Downloading", outputFile.name)
-
-                        Downloader(
-                            url = "https://file-examples.com/storage/fe36b23e6a66fc0679c1f86/2017/02/file-sample_1MB.doc",
-                            outputFile = outputFile
-                        ).startDownload(
-                            onProgress = { progress -> updateTaskProgress(downloadTask, progress) },
-                            onComplete = { },
-                            onError = { }
-                        )
-                    }) {
-                        Text("Test Feature")
-                    }
+                        coroutineScope.launch {
+                            MinecraftRunner.checkDependencies(::addTask, ::updateTaskProgress)
+                        }
+                    }) { Text("Repair Minecraft setup") }
                 }
 
-                Button(onClick = { showSettingsDialog = true }) { Text("Edit Settings") }
-                if (showSettingsDialog) {
-                    settingsDialog(onDismiss = { showSettingsDialog = false })
-                }
+//                Button(onClick = { showSettingsDialog = true }) { Text("Edit Settings") }
+//                if (showSettingsDialog) {
+//                    settingsDialog(onDismiss = { showSettingsDialog = false })
+//                }
 
-                // Display tasks dynamically
                 tasks.forEach { task ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("${task.name}...")
-                        Row(
-                            Modifier.fillMaxWidth(0.7f),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(task.description)
-                            Spacer(modifier = Modifier.width(20.dp))
-                            LinearProgressIndicator(progress = task.progress, modifier = Modifier.fillMaxWidth())
+                    when (task.type) {
+                        "progressbar" -> {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("${task.name}...")
+                                Row(
+                                    Modifier.fillMaxWidth(0.7f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(task.description)
+                                    Spacer(modifier = Modifier.width(20.dp))
+                                    LinearProgressIndicator(progress = task.progress, modifier = Modifier.fillMaxWidth())
+                                }
+                            }
                         }
                     }
                 }
