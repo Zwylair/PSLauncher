@@ -15,7 +15,7 @@ val launcherSettings = LauncherSettings()
 
 @Serializable
 private data class Settings(
-    val version: String = "1.0.1",
+    val version: String = "1.0.0",
     var buildVersion: String,
     var nickName: String
 )
