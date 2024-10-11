@@ -65,10 +65,6 @@ fun checkSha512(filePath: String, shaCompareTo: String?): Boolean {
     return if (shaCompareTo != null) calculateSha512(File(filePath).readBytes()) == shaCompareTo else true
 }
 
-fun getProcessOutput(process: Process): String {
-    return BufferedReader(InputStreamReader(process.inputStream)).use { it.readText() }
-}
-
 fun String.isDigit(): Boolean { return this.toFloatOrNull() != null }
 fun String.isAlpha(allowSpace: Boolean = false): Boolean  {
     return !(this.toCharArray().map {
@@ -313,6 +309,7 @@ object MinecraftRunner {
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
+        val runMinecraftTask = taskCreator("Running Minecraft", "Running")
         val command = mutableListOf(
             "${Config.PYTHON_SDK_PATH}/python.exe",
             "scripts/run_minecraft.py"
@@ -334,8 +331,10 @@ object MinecraftRunner {
                 }
             }
 
+            taskProgressUpdater(runMinecraftTask, 0.5f, null)
             outputJob.join()
             while (outputJob.isActive) { delay(0) }
+            taskProgressUpdater(runMinecraftTask, 1f, null)
         }
         catch (e: IOException) { e.printStackTrace() }
         catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
