@@ -1,26 +1,27 @@
 package org.zwylair.pisskaland_launcher
 
+import org.jetbrains.compose.resources.ExperimentalResourceApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
-import org.jetbrains.compose.resources.ExperimentalResourceApi
-import org.zwylair.pisskaland_launcher.storage.BuildManifest
-import org.zwylair.pisskaland_launcher.storage.Config
-import pisskalandlauncher.composeapp.generated.resources.Res
+import kotlin.io.path.name
+import kotlin.io.path.Path
+import kotlin.io.path.listDirectoryEntries
+import kotlinx.coroutines.*
 import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
 import java.io.InputStreamReader
-import java.security.MessageDigest
-import kotlin.io.path.Path
-import kotlin.io.path.listDirectoryEntries
-import kotlin.io.path.name
-import kotlinx.coroutines.*
-import java.io.ByteArrayInputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
+import java.io.ByteArrayInputStream
+import java.security.MessageDigest
+import pisskalandlauncher.composeapp.generated.resources.Res
+import org.zwylair.pisskaland_launcher.storage.BuildManifest
+import org.zwylair.pisskaland_launcher.storage.Config
+import org.zwylair.pisskaland_launcher.storage.launcherSettings
 
 fun readZipFile(zipBytes: ByteArray) {
     // Create a ByteArrayInputStream from the zip file bytes
@@ -312,7 +313,8 @@ object MinecraftRunner {
         val runMinecraftTask = taskCreator("Running Minecraft", "Running")
         val command = mutableListOf(
             "${Config.PYTHON_SDK_PATH}/python.exe",
-            "scripts/run_minecraft.py"
+            "scripts/run_minecraft.py",
+            launcherSettings.nickName
         )
 
         try {

@@ -14,8 +14,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import org.zwylair.pisskaland_launcher.storage.Config
 import java.io.File
+import org.zwylair.pisskaland_launcher.storage.Config
+import org.zwylair.pisskaland_launcher.storage.launcherSettings
 
 class Task(val name: String, var description: String, val type: String = "progressbar") {
     var progress by mutableStateOf(0f)
@@ -27,7 +28,7 @@ fun app() {
     val scrollState = rememberScrollState()
     val coroutineScope = rememberCoroutineScope()
     var showSettingsDialog by remember { mutableStateOf(false) }
-    val tasks = remember { mutableStateListOf<Task>() } // Use mutableStateListOf for reactive UI updates
+    val tasks = remember { mutableStateListOf<Task>() }
 
     fun addTask(name: String, description: String): Int {
         val newTask = Task("$name...", description)
@@ -103,6 +104,15 @@ fun app() {
                         }
                     }) { Text("Repair Minecraft setup") }
                 }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                OutlinedTextField(
+                    value = launcherSettings.nickName,
+                    onValueChange = { launcherSettings.nickName = it; launcherSettings.saveConfig() },
+                    placeholder = { Text("Enter your nickname") },
+                    modifier = Modifier.fillMaxWidth(0.7f)
+                )
 
 //                Button(onClick = { showSettingsDialog = true }) { Text("Edit Settings") }
 //                if (showSettingsDialog) {
