@@ -13,7 +13,7 @@ for version in minecraft_launcher_lib.utils.get_installed_versions(""):
         selected_version = version["id"]
 
 options = minecraft_launcher_lib.utils.generate_test_options()
-minecraft_command = minecraft_launcher_lib.command.get_minecraft_command(selected_version, "", options)
+minecraft_command = minecraft_launcher_lib.command.get_minecraft_command(selected_version, os.getcwd(), options)
 
 subprocess.run(minecraft_command)
 os.chdir(cwd)
