@@ -44,7 +44,7 @@ class LauncherSettings() {
 
         try {
             settings = Json.decodeFromString<Settings>(CONFIG_FILE.readText())
-        } catch (e: MissingFieldException) { }
+        } catch (_: MissingFieldException) { }
 
         nickName = settings.nickName
         version = settings.version

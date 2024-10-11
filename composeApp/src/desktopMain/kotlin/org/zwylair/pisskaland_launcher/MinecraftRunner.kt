@@ -1,6 +1,5 @@
 package org.zwylair.pisskaland_launcher
 
-import org.jetbrains.compose.resources.ExperimentalResourceApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
@@ -18,37 +17,13 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.io.ByteArrayInputStream
 import java.security.MessageDigest
-import pisskalandlauncher.composeapp.generated.resources.Res
 import org.zwylair.pisskaland_launcher.storage.BuildManifest
 import org.zwylair.pisskaland_launcher.storage.Config
 import org.zwylair.pisskaland_launcher.storage.launcherSettings
+import java.io.FileOutputStream
 
-fun readZipFile(zipBytes: ByteArray) {
-    // Create a ByteArrayInputStream from the zip file bytes
-    val inputStream = ByteArrayInputStream(zipBytes)
-    val zipInputStream = ZipInputStream(inputStream)
-
-    var entry: ZipEntry? = zipInputStream.nextEntry
-    while (entry != null) {
-        println("Reading file: ${entry.name}")
-
-        // You can now read the file content as needed from zipInputStream
-        if (!entry.isDirectory) {
-            val fileContent = zipInputStream.readBytes()
-            // Do something with the file content (e.g., process it)
-            println("File content size: ${fileContent.size} bytes")
-        }
-
-        // Move to the next entry in the zip
-        entry = zipInputStream.nextEntry
-    }
-
-    // Close the zip stream
-    zipInputStream.close()
-}
-
-fun openZipFile(file: File): ZipInputStream {
-    return ZipInputStream(ByteArrayInputStream(file.readBytes()))
+fun readZipFile(zipBytes: ByteArray): ZipInputStream {
+    return ZipInputStream(ByteArrayInputStream(zipBytes))
 }
 
 fun getFilename(path: String): String { return File(path).name }
@@ -67,6 +42,7 @@ fun checkSha512(filePath: String, shaCompareTo: String?): Boolean {
 }
 
 fun String.isDigit(): Boolean { return this.toFloatOrNull() != null }
+
 fun String.isAlpha(allowSpace: Boolean = false): Boolean  {
     return !(this.toCharArray().map {
         if (allowSpace) { it.isLetter() || it == " ".toCharArray()[0] }
@@ -74,22 +50,16 @@ fun String.isAlpha(allowSpace: Boolean = false): Boolean  {
     }.contains(false))
 }
 
-@OptIn(ExperimentalResourceApi::class)
-private suspend fun getBuildManifest(): BuildManifest {
-    val jsonData = Res.readBytes(Config.MINECRAFT_BUILD_CONFIG).toString(Charsets.UTF_8)
-    return Json.decodeFromString<BuildManifest>(jsonData)
-}
-
 object MinecraftRunner {
     private val preLaunchHandlers = mutableListOf<(
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) -> Unit>()
-
     private val postLaunchHandlers = mutableListOf<(
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) -> Unit>()
+    private lateinit var buildZipBytes: ByteArray
 
     fun addPreLaunchHandler(
         handler: (
@@ -220,24 +190,77 @@ object MinecraftRunner {
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
-        val buildManifest = getBuildManifest()
+//        val fetchedBuildVersion = suspendCancellableCoroutine { continuation ->
+//            MemoryDownloader(Config.LATEST_BUILD_VERSION_FILE_URL)
+//                .startDownload(
+//                    onProgress = {},
+//                    onComplete = { continuation.resumeWith(Result.success(it.decodeToString())) },
+//                    onError = { continuation.resumeWith(Result.failure(it)) }
+//                )
+//        }
 
-        for (mod in buildManifest.files) {
-            val outputFile = File("${Config.MINECRAFT_PARENT_PATH}/${mod.path}")
-            if (fileExists(outputFile.path) && checkSha512(outputFile.path, mod.hashes.sha512)) { continue }
-            val downloadTask = taskCreator("Download mod", getFilename(mod.path))
+//        if (launcherSettings.buildVersion == fetchedBuildVersion) { return }
 
-            suspendCancellableCoroutine<Unit> { continuation ->
-                Downloader(url = mod.downloads[0], outputFile = outputFile)
-                    .startDownload(
-                        onProgress = { progress -> taskProgressUpdater(downloadTask, progress, null) },
-                        onComplete = { continuation.resume(Unit) { } },
-                        onError = { e ->
-                            taskProgressUpdater(downloadTask, 1f, null)
-                            continuation.resume(Unit) { }
-                        }
-                    )
+        val downloadBuildZipTask = taskCreator("Downloading build", "Processing")
+        buildZipBytes = suspendCancellableCoroutine { continuation ->
+            MemoryDownloader(Config.LATEST_BUILD_FILE_URL)
+                .startDownload(
+                    onProgress = { taskProgressUpdater(downloadBuildZipTask, it, null) },
+                    onComplete = { continuation.resumeWith(Result.success(it)) },
+                    onError = { continuation.resumeWith(Result.failure(it)) }
+                )
+        }
+        val buildZipFile = readZipFile(buildZipBytes)
+        var zipEntry: ZipEntry? = buildZipFile.nextEntry
+
+        while (zipEntry != null) {
+            val entryName = zipEntry.name
+
+            if (entryName == "modrinth.index.json") {
+                val jsonData = buildZipFile.readBytes().toString(Charsets.UTF_8)
+                val buildManifest = Json.decodeFromString<BuildManifest>(jsonData)
+
+                val allModsDownloadTask = taskCreator("Downloading resources", "Processing")
+                val pointsPerMod = 1f / buildManifest.files.size
+                var processedModsCount = 0
+
+                for (mod in buildManifest.files) {
+                    val outputFile = File("${Config.MINECRAFT_PARENT_PATH}/${mod.path}")
+                    if (fileExists(outputFile.path) && checkSha512(outputFile.path, mod.hashes.sha512)) { continue }
+                    val downloadModTask = taskCreator("Downloading content", getFilename(mod.path))
+
+                    suspendCancellableCoroutine<Unit> { continuation ->
+                        Downloader(url = mod.downloads[0], outputFile = outputFile)
+                            .startDownload(
+                                onProgress = { taskProgressUpdater(downloadModTask, it, null) },
+                                onComplete = { continuation.resume(Unit) { } },
+                                onError = { e ->
+                                    taskProgressUpdater(downloadModTask, 1f, null)
+                                    continuation.resume(Unit) { }
+                                }
+                            )
+                    }
+
+                    processedModsCount++
+                    taskProgressUpdater(allModsDownloadTask, pointsPerMod * processedModsCount, null)
+                }
+
+                zipEntry = buildZipFile.nextEntry
+                continue
             }
+
+            val overridePrefix = "override/"
+            val outputFileName = if (entryName.startsWith(overridePrefix)) {
+                entryName.removePrefix(overridePrefix)
+            } else { entryName }
+
+            val outputFile = File("minecraft", outputFileName)
+            outputFile.parentFile?.mkdirs()
+
+            if (zipEntry.isDirectory) { outputFile.mkdirs() }
+            else { FileOutputStream(outputFile).write(buildZipFile.readBytes()) }
+
+            zipEntry = buildZipFile.nextEntry
         }
     }
 
@@ -249,7 +272,7 @@ object MinecraftRunner {
         val cleanMinecraftFolderTask = taskCreator("Cleaning", "Mod folder")
         println("Searching minecraft folder for trash")
 
-        val buildManifest = getBuildManifest()
+        val buildZipInputStream = readZipFile(buildZipBytes)
         val verifiedModList = mutableListOf<String>()
         val verifiedResourcePacksList = mutableListOf<String>()
         val modsPathList = Path("${Config.MINECRAFT_PARENT_PATH}/mods").listDirectoryEntries()
@@ -257,24 +280,57 @@ object MinecraftRunner {
         val pointsPerItem = 1f / modsPathList.size + resourcePacksPathList.size
         var itemCounter = 0
 
-        buildManifest.files.forEach {
-            when (File(it.path).parent) {
-                "mods" -> { verifiedModList.add(getFilename(it.path)) }
-                "resourcepacks" -> { verifiedResourcePacksList.add(getFilename(it.path)) }
+        var zipEntry: ZipEntry? = buildZipInputStream.nextEntry
+
+        while (zipEntry != null) {
+            val entryName = zipEntry.name
+
+            if (zipEntry.isDirectory) {
+                zipEntry = buildZipInputStream.nextEntry
+                continue
             }
+
+            if (entryName == "modrinth.index.json") {
+                val jsonData = buildZipInputStream.readBytes().toString(Charsets.UTF_8)
+                val buildManifest = Json.decodeFromString<BuildManifest>(jsonData)
+
+                buildManifest.files.forEach {
+                    when (File(it.path).parent) {
+                        "mods" -> { verifiedModList.add(getFilename(it.path)) }
+                        "resourcepacks" -> { verifiedResourcePacksList.add(getFilename(it.path)) }
+                    }
+                }
+
+                zipEntry = buildZipInputStream.nextEntry
+                continue
+            }
+
+            val overridePrefix = "overrides/"
+            val outputFileName = entryName.removePrefix(overridePrefix)
+            val outputFile = File("minecraft", outputFileName)
+
+            if (outputFileName.startsWith("mods/")) { verifiedModList.add(getFilename(entryName)) }
+            else if (entryName.startsWith("resourcepacks/")) { verifiedResourcePacksList.add(getFilename(entryName)) }
+
+            outputFile.parentFile?.mkdirs()
+            outputFile.writeBytes(buildZipInputStream.readBytes())
+
+            zipEntry = buildZipInputStream.nextEntry
         }
 
         modsPathList.forEach {
-            if (!verifiedModList.contains(it.name)) { it.toFile().delete() }
+            if (!verifiedModList.contains(it.name)) { it.toFile().delete(); println("removing: ${it.name}") }
             itemCounter++
             taskProgressUpdater(cleanMinecraftFolderTask, pointsPerItem * itemCounter, "Cleaning mods folder")
         }
 
         resourcePacksPathList.forEach {
-            if (!verifiedResourcePacksList.contains(it.name)) { it.toFile().delete() }
+            if (!verifiedResourcePacksList.contains(it.name)) { it.toFile().delete(); println("removing: ${it.name}") }
             itemCounter++
             taskProgressUpdater(cleanMinecraftFolderTask, pointsPerItem * itemCounter, "Cleaning RP folder")
         }
+
+        taskProgressUpdater(cleanMinecraftFolderTask, 1f, "Processing")
     }
 
     suspend fun launchGame(
