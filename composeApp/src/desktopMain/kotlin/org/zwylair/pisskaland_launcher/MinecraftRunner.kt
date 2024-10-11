@@ -187,11 +187,9 @@ object MinecraftRunner {
                 processBuilder.redirectErrorStream(true)
 
                 val process = processBuilder.start()
-
                 val outputJob = CoroutineScope(Dispatchers.IO).launch {
                     val reader = BufferedReader(InputStreamReader(process.inputStream))
                     var line: String?
-
                     var task = taskCreator("Downloading Minecraft", "Processing")
 
                     while (process.isAlive) {

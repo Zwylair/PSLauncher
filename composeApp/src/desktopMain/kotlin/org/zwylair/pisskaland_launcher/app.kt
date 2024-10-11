@@ -30,6 +30,8 @@ fun app() {
     var showSettingsDialog by remember { mutableStateOf(false) }
     val tasks = remember { mutableStateListOf<Task>() }
 
+    Updater.checkForUpdate()
+
     fun addTask(name: String, description: String): Int {
         val newTask = Task("$name...", description)
         tasks.add(newTask)

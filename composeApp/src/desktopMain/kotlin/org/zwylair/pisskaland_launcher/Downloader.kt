@@ -1,10 +1,10 @@
 package org.zwylair.pisskaland_launcher
 
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
+import java.io.FileOutputStream
+import java.io.ByteArrayOutputStream
 import okhttp3.*
-import sun.java2d.pipe.NullPipe
 
 class Downloader(val url: String, val outputFile: File) {
     private val client = OkHttpClient()
@@ -47,6 +47,57 @@ class Downloader(val url: String, val outputFile: File) {
 
                     outputStream.flush()
                     onComplete()
+                } catch (e: Exception) {
+                    onError(e)
+                } finally {
+                    outputStream.close()
+                    inputStream?.close()
+                }
+            }
+        })
+    }
+}
+
+class MemoryDownloader(val url: String) {
+    private val client = OkHttpClient()
+
+    fun startDownload(
+        onProgress: (Float) -> Unit,
+        onComplete: (ByteArray) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val request = Request.Builder().url(url).build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { onError(e) }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (!response.isSuccessful) {
+                    onError(IOException("Failed to download file: ${response.message}"))
+                    return
+                }
+
+                println("Downloading from url: $url")
+                val fileLength = response.body?.contentLength() ?: -1
+                val inputStream = response.body?.byteStream()
+                val outputStream = ByteArrayOutputStream()
+
+                try {
+                    val buffer = ByteArray(8 * 1024)
+                    var bytesRead: Long = 0
+                    var read: Int
+
+                    while (inputStream?.read(buffer).also { read = it!! } != -1) {
+                        outputStream.write(buffer, 0, read)
+                        bytesRead += read
+                        if (fileLength > 0) {
+                            val progress = (bytesRead.toFloat() / fileLength.toFloat()) * 100
+                            onProgress(progress / 100f)
+                        }
+                    }
+
+                    outputStream.flush()
+                    onComplete(outputStream.toByteArray())
                 } catch (e: Exception) {
                     onError(e)
                 } finally {

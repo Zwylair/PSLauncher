@@ -14,15 +14,15 @@ val launcherSettings = LauncherSettings()
 
 @Serializable
 private data class Settings(
+    val version: String = "1.0.0",
     var nickName: String
 )
 
 class LauncherSettings() {
+    var version by mutableStateOf("")
     var nickName by mutableStateOf("")
 
-    init {
-        readConfig()
-    }
+    init { readConfig() }
 
     fun saveConfig() {
         CONFIG_FILE.writeText(Json.encodeToString(
@@ -37,5 +37,6 @@ class LauncherSettings() {
         val settings = Json.decodeFromString<Settings>(CONFIG_FILE.readText())
 
         nickName = settings.nickName
+        version = settings.version
     }
 }
