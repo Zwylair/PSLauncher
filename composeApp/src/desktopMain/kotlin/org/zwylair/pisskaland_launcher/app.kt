@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.zwylair.pisskaland_launcher.storage.Config
+import java.io.File
 
 class Task(val name: String, var description: String, val type: String = "progressbar") {
     var progress by mutableStateOf(0f)
@@ -93,6 +95,9 @@ fun app() {
                     Spacer(modifier = Modifier.width(5.dp))
 
                     Button(onClick = {
+                        File("${Config.MINECRAFT_PARENT_PATH}/runtime/java-runtime-gamma/windows-x64/java-runtime-gamma/bin/java.exe")
+                            .delete()
+
                         coroutineScope.launch {
                             MinecraftRunner.checkDependencies(::addTask, ::updateTaskProgress)
                         }
