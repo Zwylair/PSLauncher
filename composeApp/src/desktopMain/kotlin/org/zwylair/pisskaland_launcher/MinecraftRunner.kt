@@ -198,9 +198,13 @@ object MinecraftRunner {
 //                    onError = { continuation.resumeWith(Result.failure(it)) }
 //                )
 //        }
+//
+//        if (launcherSettings.buildVersion == fetchedBuildVersion) {
+//            println("Local build version is the same with server one. Build checking skipped.")
+//            return
+//        }
 
-//        if (launcherSettings.buildVersion == fetchedBuildVersion) { return }
-
+//        println("Downloading build")
         val downloadBuildZipTask = taskCreator("Downloading build", "Processing")
         buildZipBytes = suspendCancellableCoroutine { continuation ->
             MemoryDownloader(Config.LATEST_BUILD_FILE_URL)
@@ -249,16 +253,18 @@ object MinecraftRunner {
                 continue
             }
 
-            val overridePrefix = "override/"
+            val overridePrefix = "overrides/"
             val outputFileName = if (entryName.startsWith(overridePrefix)) {
                 entryName.removePrefix(overridePrefix)
             } else { entryName }
-
             val outputFile = File("minecraft", outputFileName)
-            outputFile.parentFile?.mkdirs()
 
-            if (zipEntry.isDirectory) { outputFile.mkdirs() }
-            else { FileOutputStream(outputFile).write(buildZipFile.readBytes()) }
+            // do not override existing files
+            if (!fileExists(outputFile.path)) {
+                outputFile.parentFile?.mkdirs()
+                if (zipEntry.isDirectory) { outputFile.mkdirs() }
+                else { FileOutputStream(outputFile).write(buildZipFile.readBytes()) }
+            }
 
             zipEntry = buildZipFile.nextEntry
         }
