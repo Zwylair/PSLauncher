@@ -190,6 +190,7 @@ object MinecraftRunner {
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
+        println("Checking mod build")
 //        val fetchedBuildVersion = suspendCancellableCoroutine { continuation ->
 //            MemoryDownloader(Config.LATEST_BUILD_VERSION_FILE_URL)
 //                .startDownload(
@@ -204,7 +205,7 @@ object MinecraftRunner {
 //            return
 //        }
 
-//        println("Downloading build")
+        println("Downloading build with url ${Config.LATEST_BUILD_FILE_URL}")
         val downloadBuildZipTask = taskCreator("Downloading build", "Processing")
         buildZipBytes = suspendCancellableCoroutine { continuation ->
             MemoryDownloader(Config.LATEST_BUILD_FILE_URL)
@@ -217,10 +218,12 @@ object MinecraftRunner {
         val buildZipFile = readZipFile(buildZipBytes)
         var zipEntry: ZipEntry? = buildZipFile.nextEntry
 
+        println("Downloading build content")
         while (zipEntry != null) {
             val entryName = zipEntry.name
 
             if (entryName == "modrinth.index.json") {
+                println("Processing modrinth.index.json")
                 val jsonData = buildZipFile.readBytes().toString(Charsets.UTF_8)
                 val buildManifest = Json.decodeFromString<BuildManifest>(jsonData)
 
@@ -232,6 +235,7 @@ object MinecraftRunner {
                     val outputFile = File("${Config.MINECRAFT_PARENT_PATH}/${mod.path}")
                     if (fileExists(outputFile.path) && checkSha512(outputFile.path, mod.hashes.sha512)) { continue }
                     val downloadModTask = taskCreator("Downloading content", getFilename(mod.path))
+                    println("Mod ${mod.path} has different hash. Redownloading it.")
 
                     suspendCancellableCoroutine<Unit> { continuation ->
                         Downloader(url = mod.downloads[0], outputFile = outputFile)
@@ -259,8 +263,9 @@ object MinecraftRunner {
             } else { entryName }
             val outputFile = File("minecraft", outputFileName)
 
-            // do not override existing files
+            // do not override other existing files (these are not mods or resourcepacks neither)
             if (!fileExists(outputFile.path)) {
+                println("Replacing file: ${outputFile.path}")
                 outputFile.parentFile?.mkdirs()
                 if (zipEntry.isDirectory) { outputFile.mkdirs() }
                 else { FileOutputStream(outputFile).write(buildZipFile.readBytes()) }
@@ -275,8 +280,8 @@ object MinecraftRunner {
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
+        println("Cleaning minecraft folder out of trash")
         val cleanMinecraftFolderTask = taskCreator("Cleaning", "Mod folder")
-        println("Searching minecraft folder for trash")
 
         val buildZipInputStream = readZipFile(buildZipBytes)
         val verifiedModList = mutableListOf<String>()
@@ -288,13 +293,9 @@ object MinecraftRunner {
 
         var zipEntry: ZipEntry? = buildZipInputStream.nextEntry
 
+        println("Checking modrinth.index.json again for saving valid mods and rps")
         while (zipEntry != null) {
             val entryName = zipEntry.name
-
-            if (zipEntry.isDirectory) {
-                zipEntry = buildZipInputStream.nextEntry
-                continue
-            }
 
             if (entryName == "modrinth.index.json") {
                 val jsonData = buildZipInputStream.readBytes().toString(Charsets.UTF_8)
@@ -316,13 +317,16 @@ object MinecraftRunner {
             val outputFile = File("minecraft", outputFileName)
 
             if (outputFileName.startsWith("mods/")) { verifiedModList.add(getFilename(entryName)) }
-            else if (entryName.startsWith("resourcepacks/")) { verifiedResourcePacksList.add(getFilename(entryName)) }
+            else if (outputFileName.startsWith("resourcepacks/")) { verifiedResourcePacksList.add(getFilename(entryName)) }
 
             outputFile.parentFile?.mkdirs()
             outputFile.writeBytes(buildZipInputStream.readBytes())
 
             zipEntry = buildZipInputStream.nextEntry
         }
+
+        println("Verified mods list: $verifiedModList")
+        println("Verified rps list: $verifiedResourcePacksList")
 
         modsPathList.forEach {
             if (!verifiedModList.contains(it.name)) { it.toFile().delete(); println("removing: ${it.name}") }
@@ -343,6 +347,8 @@ object MinecraftRunner {
         taskCreator: (String, String) -> Int,
         taskProgressUpdater: (Int, Float, String?) -> Unit
     ) {
+        println("LaunchGame task called. Preparing game to launch")
+
         val preLaunchTasks = mapOf(
             ::checkDependencies to "Checking dependencies",
             ::checkModBuild to "Checking mod build",
@@ -351,25 +357,24 @@ object MinecraftRunner {
         val oneProgressTaskWeight = 1f / (preLaunchTasks.size + preLaunchHandlers.size + postLaunchHandlers.size)
         var tasksDone = 0
         val mainTask = taskCreator("Launching Minecraft", "Processing")
-        println("launchGame task ran")
 
+        println("Executing preLaunch tasks")
         for ((task, taskDesc) in preLaunchTasks) {
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, taskDesc)
-            println(taskDesc)
             task(taskCreator, taskProgressUpdater)
             tasksDone++
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
-        taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "executing preLaunchHooks")
-        println("executing preLaunchHooks")
-
+        taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "Executing preLaunchHooks")
+        println("Executing preLaunchHooks")
         for (handler in preLaunchHandlers) {
             handler(taskCreator, taskProgressUpdater)
             tasksDone++
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
+        println("Running Minecraft")
         val runMinecraftTask = taskCreator("Running Minecraft", "Running")
         val command = mutableListOf(
             "${Config.PYTHON_SDK_PATH}/python.exe",
@@ -401,8 +406,8 @@ object MinecraftRunner {
         catch (e: IOException) { e.printStackTrace() }
         catch (e: InterruptedException) { e.printStackTrace(); Thread.currentThread().interrupt() }
 
-        taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "executing postLaunchHooks")
-        println("executing postLaunchHooks")
+        taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, "Executing postLaunchHooks")
+        println("Executing postLaunchHooks")
 
         for (handler in postLaunchHandlers) {
             handler(taskCreator, taskProgressUpdater) // Execute post-launch handler sequentially
@@ -410,6 +415,6 @@ object MinecraftRunner {
             taskProgressUpdater(mainTask, oneProgressTaskWeight * tasksDone, null)
         }
 
-        println("launchGame task finished")
+        println("LaunchGame task finished")
     }
 }
