@@ -25,6 +25,8 @@ kotlin {
             implementation("com.squareup.okhttp3:okhttp:4.9.3")
             runtimeOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0-RC")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+            implementation("org.slf4j:slf4j-api:2.0.17")
+            implementation("org.slf4j:slf4j-simple:2.0.17")
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
